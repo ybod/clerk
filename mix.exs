@@ -5,7 +5,7 @@ defmodule Clerk.MixProject do
     [
       app: :clerk,
       version: "0.1.0",
-      description: "Simple repeating task manager",
+      description: "Simple manager for global periodic tasks",
       elixir: "~> 1.11",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,

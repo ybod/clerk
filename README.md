@@ -1,6 +1,6 @@
 # Clerk
 
-**TODO: Add description**
+Simple manager for global periodic tasks
 
 ## Installation
 
