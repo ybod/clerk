@@ -116,7 +116,7 @@ defmodule Clerk do
   defp try_register_global_name({__MODULE__, _task_module} = global_name) do
     case :global.whereis_name(global_name) do
       :undefined ->
-        case :global.register_name(global_name, self()) do
+        case :global.register_name(global_name, self(), &resolve_name_clash/3) do
           :yes -> {:ok, :registered}
           :no -> {:error, :exists}
         end
@@ -136,7 +136,17 @@ defmodule Clerk do
     end
   end
 
-  # Remove Elixit from module name for loggins purposes
+  # resolve global name clash by selecting one node to register global name
+  defp resolve_name_clash(name, pid1, pid2) do
+    case :global.whereis_name(name) do
+      ^pid1 -> pid1
+      ^pid2 -> pid2
+      :undefined -> if node(pid1) < node(pid2), do: pid1, else: pid2
+      _ -> raise RuntimeError
+    end
+  end
+
+  # Remove Elixir from module name for logging
   defp get_short_name(module) do
     Enum.intersperse(Module.split(module), ".")
   end

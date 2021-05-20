@@ -19,3 +19,6 @@ Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_do
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at [https://hexdocs.pm/clerk](https://hexdocs.pm/clerk).
 
+## Testing
+
+Testing over local distributed nodes cluster requires **epmd** daemon to be running. You can start **epmd** via `epmd -daemon` command and stop with `epmd -kill`.
