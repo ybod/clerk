@@ -5,6 +5,7 @@ defmodule Clerk do
   Params:
     enabled: bool,
     execute_on_start: bool (default = false),
+    postpone_start: integer (default = 0),
     execution_interval: integer,
     task_module: atom,
     init_args: term (default = nil),
@@ -49,6 +50,9 @@ defmodule Clerk do
       task_state: task_state,
       execution_timeout: Map.get(params, :timeout, :timer.seconds(5))
     }
+
+    # postpone_start
+    Process.sleep(Map.get(params, :postpone_start, 0))
 
     case try_register_global_name({__MODULE__, module}) do
       {:ok, :registered} ->

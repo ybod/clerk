@@ -23,15 +23,16 @@ defmodule ClerkTest do
          %{
            enabled: true,
            execute_on_start: true,
-           execution_interval: 60_000,
+           execution_interval: 1_000,
            task_module: TestTask,
-           init_args: %{caller: self()}
+           init_args: %{caller: self(), task_start_time: System.monotonic_time()}
          }}
       )
 
       local_node = node()
 
-      assert_receive({:executed, ^local_node, _execution_interval})
+      assert_receive({:executed, ^local_node, execution_interval})
+      assert execution_interval < 1000
     end
 
     test "when started supervised can execute periodic task after given interval on local node" do
@@ -48,6 +49,27 @@ defmodule ClerkTest do
 
       assert_receive({:executed, _node, execution_interval}, 200)
       assert execution_interval >= 100
+      assert_receive({:executed, _node, execution_interval}, 200)
+      assert execution_interval >= 100
+      assert_receive({:executed, _node, execution_interval}, 200)
+      assert execution_interval >= 100
+    end
+
+    test "when started supervised can postpone task execution start" do
+      start_supervised!(
+        {Clerk,
+         %{
+           enabled: true,
+           execute_on_start: false,
+           postpone_start: 200,
+           execution_interval: 100,
+           task_module: TestTask,
+           init_args: %{caller: self(), task_start_time: System.monotonic_time()}
+         }}
+      )
+
+      assert_receive({:executed, _node, execution_interval}, 200)
+      assert execution_interval >= 300
       assert_receive({:executed, _node, execution_interval}, 200)
       assert execution_interval >= 100
       assert_receive({:executed, _node, execution_interval}, 200)
