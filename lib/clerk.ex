@@ -5,7 +5,7 @@ defmodule Clerk do
   Params:
     enabled: bool,
     execute_on_start: bool (default = false),
-    postpone_start: integer (default = 0),
+    chain_with: list (default: [])
     execution_interval: integer,
     task_module: atom,
     init_args: term (default = nil),
@@ -14,7 +14,7 @@ defmodule Clerk do
 
   use GenServer
 
-  defstruct [:execution_interval, :task_module, :task_state, :execution_timeout]
+  defstruct [:execution_interval, :task_module, :task_state, :execution_timeout, :chain_with]
 
   require Logger
 
@@ -40,47 +40,51 @@ defmodule Clerk do
   # server
 
   @impl true
-  def init(%{enabled: true, execution_interval: interval, task_module: module} = params) do
+  def init(%{enabled: true, task_module: module} = params) do
     # get initial task state from running init function with init arguments
     {:ok, task_state} = apply(module, :init, [Map.get(params, :init_args)])
 
+    # TODO: validate that chain_with contains valid Tasks
     clerk_state = %__MODULE__{
-      execution_interval: interval,
+      execution_interval: Map.get(params, :execution_interval),
       task_module: module,
       task_state: task_state,
-      execution_timeout: Map.get(params, :timeout, :timer.seconds(5))
+      execution_timeout: Map.get(params, :timeout, :timer.seconds(5)),
+      chain_with: Map.get(params, :chain_with, [])
     }
 
-    # postpone_start
-    Process.sleep(Map.get(params, :postpone_start, 0))
-
     case try_register_global_name({__MODULE__, module}) do
-      {:ok, :registered} ->
-        Logger.info(
-          "Clerk: periodic taks registered on node #{Node.self()} for #{get_short_name(module)} with #{interval}ms" <>
-            " execution interval"
-        )
+      {:registered, _} ->
+        Logger.info("Clerk registered on node #{Node.self()} for task #{get_short_name(module)}")
 
-        if Map.get(params, :execute_on_start, false) do
-          Process.send(self(), :execute_periodic_task, [])
-        else
-          Process.send_after(self(), :execute_periodic_task, interval)
+        unless clerk_state.execution_interval == nil,
+          do: Logger.info("Clerk task #{get_short_name(module)} execution interval #{clerk_state.execution_interval}")
+
+        unless clerk_state.chain_with == [],
+          do: Logger.info("Clerk task #{get_short_name(module)} is chained with #{inspect(clerk_state.chain_with)}")
+
+        cond do
+          Map.get(params, :execute_on_start, false) == true ->
+            Process.send(self(), :execute_periodic_task, [])
+
+          clerk_state.execution_interval != nil ->
+            Process.send_after(self(), :execute_periodic_task, clerk_state.execution_interval)
+
+          true ->
+            :noop
         end
 
-      {:error, :exists} ->
-        Logger.info(
-          "Clerk: monitoring periodic task from node #{Node.self()} for #{get_short_name(module)} with #{interval}ms" <>
-            " interval"
-        )
+      {:exists, pid} ->
+        Logger.info("Clerk monitoring task #{get_short_name(module)} from node #{Node.self()}")
 
-        Process.send_after(self(), :monitor_periodic_task, interval)
+        Process.monitor(pid)
     end
 
     {:ok, clerk_state}
   end
 
   def init(%{enabled: false, task_module: module}) do
-    Logger.info("Clerk: ignoring periodic task for #{get_short_name(module)}")
+    Logger.info("Clerk ignoring task #{get_short_name(module)}")
     :ignore
   end
 
@@ -89,23 +93,46 @@ defmodule Clerk do
     {:ok, new_state} =
       execute_periodic_task(clerk_state.task_module, clerk_state.task_state, clerk_state.execution_timeout)
 
+    # send execution commands to all chained tasks
+    Enum.each(clerk_state.chain_with, fn chained_task ->
+      global_pid = :global.whereis_name({__MODULE__, chained_task})
+      Process.send(global_pid, :execute_chained_task, [])
+    end)
+
     Process.send_after(self(), :execute_periodic_task, clerk_state.execution_interval)
 
     {:noreply, %{clerk_state | task_state: new_state}}
   end
 
-  def handle_info(:monitor_periodic_task, %__MODULE__{} = clerk_state) do
+  def handle_info(:execute_chained_task, %__MODULE__{} = clerk_state) do
+    {:ok, new_state} =
+      execute_periodic_task(clerk_state.task_module, clerk_state.task_state, clerk_state.execution_timeout)
+
+    # send execution commands to all chained tasks
+    Enum.each(clerk_state.chain_with, fn chained_task ->
+      global_pid = :global.whereis_name({__MODULE__, chained_task})
+      Process.send(global_pid, :execute_chained_task, [])
+    end)
+
+    {:noreply, %{clerk_state | task_state: new_state}}
+  end
+
+  def handle_info({:DOWN, _ref, :process, object, reason}, %__MODULE__{} = clerk_state) do
+    Logger.warn("Clerk monitor on node #{Node.self()} recieved DOWN message from #{node(object)} with reason #{reason}")
+
+    # TODO: do we need to log all task details again (execution_interval and chain_with)?
     case try_register_global_name({__MODULE__, clerk_state.task_module}) do
-      {:ok, :registered} ->
-        Logger.warn(
-          "Clerk: new periodic taks registered on node #{Node.self()} for #{clerk_state.task_module} with" <>
-            " #{clerk_state.execution_interval}ms execution interval"
-        )
+      {:registered, _} ->
+        Logger.info("Clerk REregistered on node #{Node.self()} for task #{get_short_name(clerk_state.task_module)}")
 
-        Process.send(self(), :execute_periodic_task, [])
+        if clerk_state.execution_interval != nil do
+          Process.send_after(self(), :execute_periodic_task, clerk_state.execution_interval)
+        end
 
-      {:error, :exists} ->
-        Process.send_after(self(), :monitor_periodic_task, clerk_state.execution_interval)
+      {:exists, pid} ->
+        Logger.info("Clerk monitoring task #{get_short_name(clerk_state.task_module)} from node #{Node.self()}")
+
+        Process.monitor(pid)
     end
 
     {:noreply, clerk_state}
@@ -121,12 +148,12 @@ defmodule Clerk do
     case :global.whereis_name(global_name) do
       :undefined ->
         case :global.register_name(global_name, self(), &resolve_name_clash/3) do
-          :yes -> {:ok, :registered}
-          :no -> {:error, :exists}
+          :yes -> {:registered, self()}
+          :no -> {:exists, :global.whereis_name(global_name)}
         end
 
-      pid ->
-        if pid != self(), do: {:error, :exists}, else: {:error, :self}
+      pid when pid != self() ->
+        {:exists, pid}
     end
   end
 
@@ -146,7 +173,6 @@ defmodule Clerk do
       ^pid1 -> pid1
       ^pid2 -> pid2
       :undefined -> if node(pid1) < node(pid2), do: pid1, else: pid2
-      _ -> raise RuntimeError
     end
   end
 

@@ -7,8 +7,14 @@ defmodule ClerkTest do
   alias ClerkTest.TestTask
   alias ClerkTest.TestCluster
 
+  alias ClerkTest.ChainedTestTask
+  alias ClerkTest.DoubleChainedTestTask
+
   setup_all do
-    {:module, _} = Code.ensure_loaded(TestTask)
+    Code.ensure_loaded!(TestTask)
+    Code.ensure_loaded!(ChainedTestTask)
+    Code.ensure_loaded!(ClerkTest.DoubleChainedTestTask)
+
     :ok
   end
 
@@ -55,25 +61,54 @@ defmodule ClerkTest do
       assert execution_interval >= 100
     end
 
-    test "when started supervised can postpone task execution start" do
+    test "when started supervised can chain tasks execution" do
       start_supervised!(
         {Clerk,
          %{
            enabled: true,
            execute_on_start: false,
-           postpone_start: 200,
-           execution_interval: 100,
-           task_module: TestTask,
-           init_args: %{caller: self(), task_start_time: System.monotonic_time()}
+           task_module: DoubleChainedTestTask,
+           init_args: %{caller: self()}
          }}
       )
 
-      assert_receive({:executed, _node, execution_interval}, 200)
-      assert execution_interval >= 300
-      assert_receive({:executed, _node, execution_interval}, 200)
-      assert execution_interval >= 100
-      assert_receive({:executed, _node, execution_interval}, 200)
-      assert execution_interval >= 100
+      start_supervised!(
+        {Clerk,
+         %{
+           enabled: true,
+           execute_on_start: false,
+           task_module: ChainedTestTask,
+           init_args: %{caller: self()},
+           chain_with: [DoubleChainedTestTask]
+         }}
+      )
+
+      refute_receive({:double_chained_task_executed, _node}, 500)
+      refute_receive({:chained_task_executed, _node}, 500)
+
+      start_supervised!(
+        {Clerk,
+         %{
+           enabled: true,
+           execute_on_start: false,
+           execution_interval: 100,
+           task_module: TestTask,
+           init_args: %{caller: self()},
+           chain_with: [ChainedTestTask]
+         }}
+      )
+
+      assert_receive({:executed, _node, _execution_interval}, 200)
+      assert_receive({:chained_task_executed, _node}, 200)
+      assert_receive({:double_chained_task_executed, _node}, 200)
+
+      assert_receive({:executed, _node, _execution_interval}, 200)
+      assert_receive({:chained_task_executed, _node}, 200)
+      assert_receive({:double_chained_task_executed, _node}, 200)
+
+      assert_receive({:executed, _node, _execution_interval}, 200)
+      assert_receive({:chained_task_executed, _node}, 200)
+      assert_receive({:double_chained_task_executed, _node}, 200)
     end
   end
 
