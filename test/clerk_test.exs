@@ -23,6 +23,12 @@ defmodule ClerkTest do
       assert :ignore = Clerk.start_link(%{enabled: false, task_module: TestTask, execution_interval: 60_000})
     end
 
+    test "will raise if invalid module is given" do
+      assert_raise ArgumentError, fn ->
+        Clerk.child_spec(%{enabled: true, task_module: InvalidModule, execution_interval: 60_000})
+      end
+    end
+
     test "when started supervised can execute task immediately on local node" do
       start_supervised!(
         {Clerk,

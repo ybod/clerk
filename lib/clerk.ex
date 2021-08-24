@@ -141,7 +141,11 @@ defmodule Clerk do
   # helpers
 
   defp valid_task_module?(module) do
-    Enum.all?(@task_interface, fn {function, arity} -> function_exported?(module, function, arity) end)
+    exported_functions = module.__info__(:functions)
+
+    Enum.all?(@task_interface, &Enum.member?(exported_functions, &1))
+  rescue
+    UndefinedFunctionError -> false
   end
 
   defp try_register_global_name({__MODULE__, _task_module} = global_name) do
