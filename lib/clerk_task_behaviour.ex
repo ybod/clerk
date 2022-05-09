@@ -1,4 +1,4 @@
-defmodule Clerk.PeriodicTaskBehaviour do
+defmodule Clerk.TaskBehaviour do
   @moduledoc """
   Clerk Periodic Task interface functions
   """

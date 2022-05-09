@@ -1,7 +1,7 @@
-defmodule Clerk.PeriodicTask do
+defmodule Clerk.Task do
   defmacro __using__(_opts) do
     quote do
-      @behaviour Clerk.PeriodicTaskBehaviour
+      @behaviour Clerk.TaskBehaviour
 
       @impl true
       def init(params) do
@@ -10,7 +10,7 @@ defmodule Clerk.PeriodicTask do
 
       @impl true
       def nodes() do
-        Node.list()
+        Node.list([:visible, :this])
       end
 
       defoverridable init: 1, nodes: 0

@@ -1,7 +1,7 @@
 defmodule ClerkTest.TestTask do
   @moduledoc false
 
-  use Clerk.PeriodicTask
+  use Clerk.Task
 
   @impl true
   def execute(%{caller: caller} = state) do

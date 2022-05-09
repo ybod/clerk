@@ -7,25 +7,20 @@ defmodule ClerkTest do
   alias ClerkTest.TestTask
   alias ClerkTest.TestCluster
 
-  alias ClerkTest.ChainedTestTask
-  alias ClerkTest.DoubleChainedTestTask
-
   setup_all do
     Code.ensure_loaded!(TestTask)
-    Code.ensure_loaded!(ChainedTestTask)
-    Code.ensure_loaded!(ClerkTest.DoubleChainedTestTask)
 
     :ok
   end
 
   describe "locally" do
     test "will not start if not enabled" do
-      assert :ignore = Clerk.start_link(%{enabled: false, task_module: TestTask, execution_interval: 60_000})
+      assert :ignore = Clerk.start_link(%{enabled: false, task: TestTask, interval: 60_000})
     end
 
     test "will raise if invalid module is given" do
       assert_raise ArgumentError, fn ->
-        Clerk.child_spec(%{enabled: true, task_module: InvalidModule, execution_interval: 60_000})
+        Clerk.child_spec(%{enabled: true, task: InvalidModule, interval: 60_000})
       end
     end
 
@@ -34,17 +29,17 @@ defmodule ClerkTest do
         {Clerk,
          %{
            enabled: true,
-           execute_on_start: true,
-           execution_interval: 1_000,
-           task_module: TestTask,
-           init_args: %{caller: self(), task_start_time: System.monotonic_time()}
+           instant: true,
+           interval: 1_000,
+           task: TestTask,
+           args: %{caller: self(), task_start_time: System.monotonic_time()}
          }}
       )
 
       local_node = node()
 
-      assert_receive({:executed, ^local_node, execution_interval})
-      assert execution_interval < 1000
+      assert_receive({:executed, ^local_node, interval})
+      assert interval < 1000
     end
 
     test "when started supervised can execute periodic task after given interval on local node" do
@@ -52,69 +47,19 @@ defmodule ClerkTest do
         {Clerk,
          %{
            enabled: true,
-           execute_on_start: false,
-           execution_interval: 100,
-           task_module: TestTask,
-           init_args: %{caller: self(), task_start_time: System.monotonic_time()}
+           instant: false,
+           interval: 100,
+           task: TestTask,
+           args: %{caller: self(), task_start_time: System.monotonic_time()}
          }}
       )
 
-      assert_receive({:executed, _node, execution_interval}, 200)
-      assert execution_interval >= 100
-      assert_receive({:executed, _node, execution_interval}, 200)
-      assert execution_interval >= 100
-      assert_receive({:executed, _node, execution_interval}, 200)
-      assert execution_interval >= 100
-    end
-
-    test "when started supervised can chain tasks execution" do
-      start_supervised!(
-        {Clerk,
-         %{
-           enabled: true,
-           execute_on_start: false,
-           task_module: DoubleChainedTestTask,
-           init_args: %{caller: self()}
-         }}
-      )
-
-      start_supervised!(
-        {Clerk,
-         %{
-           enabled: true,
-           execute_on_start: false,
-           task_module: ChainedTestTask,
-           init_args: %{caller: self()},
-           chain_with: [DoubleChainedTestTask]
-         }}
-      )
-
-      refute_receive({:double_chained_task_executed, _node}, 500)
-      refute_receive({:chained_task_executed, _node}, 500)
-
-      start_supervised!(
-        {Clerk,
-         %{
-           enabled: true,
-           execute_on_start: false,
-           execution_interval: 100,
-           task_module: TestTask,
-           init_args: %{caller: self()},
-           chain_with: [ChainedTestTask]
-         }}
-      )
-
-      assert_receive({:executed, _node, _execution_interval}, 200)
-      assert_receive({:chained_task_executed, _node}, 200)
-      assert_receive({:double_chained_task_executed, _node}, 200)
-
-      assert_receive({:executed, _node, _execution_interval}, 200)
-      assert_receive({:chained_task_executed, _node}, 200)
-      assert_receive({:double_chained_task_executed, _node}, 200)
-
-      assert_receive({:executed, _node, _execution_interval}, 200)
-      assert_receive({:chained_task_executed, _node}, 200)
-      assert_receive({:double_chained_task_executed, _node}, 200)
+      assert_receive({:executed, _node, interval}, 200)
+      assert interval >= 100
+      assert_receive({:executed, _node, interval}, 200)
+      assert interval >= 100
+      assert_receive({:executed, _node, interval}, 200)
+      assert interval >= 100
     end
   end
 
@@ -136,10 +81,10 @@ defmodule ClerkTest do
         {Clerk,
          %{
            enabled: true,
-           execute_on_start: false,
-           execution_interval: 50,
-           task_module: TestTask,
-           init_args: %{caller: self()}
+           instant: false,
+           interval: 50,
+           task: TestTask,
+           args: %{caller: self()}
          }}
       )
 
@@ -158,10 +103,10 @@ defmodule ClerkTest do
 
       params = %{
         enabled: true,
-        execute_on_start: false,
-        execution_interval: 50,
-        task_module: TestTask,
-        init_args: %{caller: self()}
+        instant: false,
+        interval: 50,
+        task: TestTask,
+        args: %{caller: self()}
       }
 
       TestCluster.start_jobs_scheduler([slave_node1, slave_node2], params)
@@ -211,10 +156,10 @@ defmodule ClerkTest do
 
       params = %{
         enabled: true,
-        execute_on_start: false,
-        execution_interval: 50,
-        task_module: TestTask,
-        init_args: %{caller: self()}
+        instant: false,
+        interval: 50,
+        task: TestTask,
+        args: %{caller: self()}
       }
 
       TestCluster.start_jobs_scheduler([slave_node1], params)
@@ -267,7 +212,7 @@ defmodule ClerkTest do
   end
 
   defp executed_on_node(desired_node) when is_atom(desired_node) do
-    assert_receive({:executed, execution_node, _execution_interval})
+    assert_receive({:executed, execution_node, _interval})
 
     if execution_node == desired_node do
       true
