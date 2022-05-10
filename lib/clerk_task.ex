@@ -4,8 +4,8 @@ defmodule Clerk.Task do
       @behaviour Clerk.TaskBehaviour
 
       @impl true
-      def init(params) do
-        {:ok, params}
+      def init(args) do
+        {:ok, args}
       end
 
       @impl true

@@ -2,9 +2,9 @@ defmodule Clerk.TaskBehaviour do
   @moduledoc """
   Clerk Periodic Task interface functions
   """
-  @callback init(params :: any()) :: {:ok, state :: any()}
+  @callback init(args :: term()) :: :ok | {:ok, state :: term()}
 
-  @callback execute(state :: any()) :: {:ok, state :: any()}
+  @callback execute(state :: term()) :: :ok | {:ok, state :: term()}
 
   @callback nodes() :: [] | [node()]
 end

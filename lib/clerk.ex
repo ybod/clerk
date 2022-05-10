@@ -55,7 +55,6 @@ defmodule Clerk do
         {:ok, res} -> res
       end
 
-    # TODO: validate that chain_with contains valid Tasks
     clerk_state = %__MODULE__{
       interval: task_interval,
       task: task_module,
@@ -95,7 +94,7 @@ defmodule Clerk do
     clerk_state =
       case execute_task(clerk_state.task, clerk_state.state, clerk_state.timeout) do
         {:ok, new_task_state} -> %{clerk_state | state: new_task_state}
-        :ok -> clerk_state
+        :ok -> %{clerk_state | state: nil}
       end
 
     {:noreply, clerk_state}
@@ -106,7 +105,7 @@ defmodule Clerk do
     clerk_state =
       case execute_task(clerk_state.task, clerk_state.state, clerk_state.timeout) do
         {:ok, new_task_state} -> %{clerk_state | state: new_task_state}
-        :ok -> clerk_state
+        :ok -> %{clerk_state | state: nil}
       end
 
     Process.send_after(self(), :execute_periodically, clerk_state.interval)
