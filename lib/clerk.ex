@@ -1,21 +1,25 @@
 defmodule Clerk do
   @moduledoc """
-  Global Module that can run scheduled jobs on one of the listed nodes
+  Global Module that can be used to run periodic tasks on multiple similar Erlang nodes,
+  given that task will be executed only once on one randomly selected node within given interval.
 
-  Params:
-    enabled: bool / required,
-    instant: bool / false,
-    interval (ms): integer >= 500 or nil / required,
-    task (module): atom / required,
-    args: term / nil,
-    timeout (ms): integer / 5000
+   ## Parameters
+
+    - name: String that represents the name of the person.
+    - enabled: Boolean that
+    - instant: Booleand (optuonal, default: false) run task immediately after Clerk starts
+    - interval: Integer (optional, default: 0) that represents interval (ms) for task execution
+    - task: Atom that represents Clerk Task Module name
+    - args: Term that represents set of arguments that will be passed into `init\1` function
+    - timeout (ms): Integer (default 5_000) that represents task execution wait time
+    - ? retries ?
   """
 
   use GenServer
 
-  defstruct [:interval, :task, :state, :timeout]
-
   require Logger
+
+  defstruct [:interval, :task, :state, :timeout]
 
   @task_callbacks [execute: 1, init: 1, nodes: 0]
   @default_timeout :timer.seconds(5)
@@ -37,6 +41,13 @@ defmodule Clerk do
     GenServer.start_link(__MODULE__, args, name: clerk_task_id(task_module))
   end
 
+  def run(task_module) when is_atom(task_module) do
+    unless valid_task_module?(task_module),
+      do: raise(ArgumentError, message: "invalid task module #{get_short_name(task_module)}")
+
+    GenServer.cast({:global, {__MODULE__, task_module}}, {:run, Node.self()})
+  end
+
   # server
   @impl true
   def init(%{enabled: true, task: task_module} = args) do
@@ -46,7 +57,8 @@ defmodule Clerk do
     unless (is_integer(task_interval) and task_interval >= 0) or is_nil(task_interval),
       do: raise(ArgumentError, message: "invalid task interval #{inspect(task_interval)}")
 
-    unless is_integer(task_timeout), do: raise(ArgumentError, message: "invalid task timeout #{inspect(task_timeout)}")
+    unless is_integer(task_timeout),
+      do: raise(ArgumentError, message: "invalid task timeout #{inspect(task_timeout)}")
 
     # run init task callback and get initial state
     init_state =
@@ -64,20 +76,28 @@ defmodule Clerk do
 
     case try_register_global_name({__MODULE__, task_module}) do
       {:registered, _} ->
-        Logger.info("Clerk registered on node #{Node.self()} for task #{get_short_name(task_module)}")
+        Logger.info(
+          "Clerk registered on node #{Node.self()} for task #{get_short_name(task_module)}"
+        )
 
         if Map.get(args, :instant, false), do: send(self(), :execute_instantly)
 
         # TODO: case with interval == 0
         if clerk_state.interval != nil do
-          Logger.info("Clerk task #{get_short_name(task_module)} execution interval #{clerk_state.interval}")
+          Logger.info(
+            "Clerk task #{get_short_name(task_module)} execution interval #{clerk_state.interval}"
+          )
+
           Process.send_after(self(), :execute_periodically, clerk_state.interval)
         else
           Logger.info("Clerk task #{get_short_name(task_module)} execution interval is nil")
         end
 
       {:exists, pid} ->
-        Logger.info("Clerk monitoring task #{get_short_name(task_module)} from node #{Node.self()}")
+        Logger.info(
+          "Clerk monitoring task #{get_short_name(task_module)} from node #{Node.self()}"
+        )
+
         Process.monitor(pid)
     end
 
@@ -114,21 +134,41 @@ defmodule Clerk do
   end
 
   def handle_info({:DOWN, _ref, :process, object, reason}, %__MODULE__{} = clerk_state) do
-    Logger.warn("Clerk monitor on node #{Node.self()} recieved DOWN message from #{node(object)} with reason #{reason}")
+    Logger.warn(
+      "Clerk monitor on node #{Node.self()} recieved DOWN message from #{node(object)} with reason #{reason}"
+    )
 
     # TODO: do we need to log any task params here?
     case try_register_global_name({__MODULE__, clerk_state.task}) do
       {:registered, _} ->
-        Logger.info("Clerk REregistered on node #{Node.self()} for task #{get_short_name(clerk_state.task)}")
+        Logger.info(
+          "Clerk REregistered on node #{Node.self()} for task #{get_short_name(clerk_state.task)}"
+        )
 
         if clerk_state.interval != nil do
           Process.send_after(self(), :execute_periodically, clerk_state.interval)
         end
 
       {:exists, pid} ->
-        Logger.info("Clerk monitoring from node #{Node.self()} for task #{get_short_name(clerk_state.task)}")
+        Logger.info(
+          "Clerk monitoring from node #{Node.self()} for task #{get_short_name(clerk_state.task)}"
+        )
+
         Process.monitor(pid)
     end
+
+    {:noreply, clerk_state}
+  end
+
+  @impl true
+  def handle_cast({:run, from_node}, %__MODULE__{} = clerk_state) do
+    Logger.info("Run instruction received from node #{from_node}")
+
+    clerk_state =
+      case execute_task(clerk_state.task, clerk_state.state, clerk_state.timeout) do
+        {:ok, new_task_state} -> %{clerk_state | state: new_task_state}
+        :ok -> %{clerk_state | state: nil}
+      end
 
     {:noreply, clerk_state}
   end

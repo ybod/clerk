@@ -4,7 +4,7 @@ defmodule Clerk.MixProject do
   def project do
     [
       app: :clerk,
-      version: "0.4.0",
+      version: "0.5.0",
       description: "Simple manager for global periodic tasks",
       elixir: "~> 1.11",
       elixirc_paths: elixirc_paths(Mix.env()),

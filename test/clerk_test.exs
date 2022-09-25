@@ -61,6 +61,25 @@ defmodule ClerkTest do
       assert_receive({:executed, _node, interval}, 200)
       assert interval >= 100
     end
+
+    test "can run task on demand on local node" do
+      start_supervised!(
+        {Clerk,
+         %{
+           enabled: true,
+           instant: false,
+           interval: nil,
+           task: TestTask,
+           args: %{caller: self()}
+         }}
+      )
+
+      for _ <- 1..3 do
+        refute_receive({:executed, _node, _interval})
+        Clerk.run(TestTask)
+        assert_receive({:executed, _node, _interval})
+      end
+    end
   end
 
   describe "in cluster" do
@@ -208,6 +227,31 @@ defmodule ClerkTest do
       assert_receive({:executed, ^master_node, _exec_interval})
       assert_receive({:executed, ^master_node, _exec_interval})
       assert_receive({:executed, ^master_node, _exec_interval})
+    end
+
+    test "can run task on demand on distributed nodes", %{master_node: master_node} do
+      [slave_node1] = TestCluster.spawn_slaves(1)
+      TestCluster.load_test_jobs([slave_node1])
+
+      start_supervised!(
+        {Clerk,
+         %{
+           enabled: true,
+           instant: false,
+           interval: nil,
+           task: TestTask,
+           args: %{caller: self()}
+         }}
+      )
+
+      for _ <- 1..10 do
+        refute_receive({:executed, _node, _interval})
+        Clerk.run(TestTask)
+        assert_receive({:executed, node, _interval})
+        assert node in [master_node, slave_node1]
+      end
+
+      TestCluster.kill_slaves([slave_node1])
     end
   end
 
