@@ -8,9 +8,9 @@ For example, if You need to poll data from 3rd party API or update materialized 
 
 To use this library You will need to define "task" module implementing 3 callbacks required by clerk task behaviour:
 
-1) `execute/1` is required to define  task code that will be excuted. 
+1) `execute/1` is required to define  task code that will be excuted.
 
-2) `init/1` is predefined callback that can do some setup, get, or define some initial task state using provided args. 
+2) `init/1` is predefined callback that can do some setup, get, or define some initial task state using provided args.
 
 3) `list/0` is predefined callback that will return the list of te nodes that can be used to execute task. These nodes should have task module defined and loaded.
 
@@ -47,12 +47,12 @@ defmodule TestApp.Application do
 
     children = [
       # Start the Ecto repository
-      ForzaChallenge.Repo,
+      TestApp.Repo,
       # Periodic tasks
       {Clerk, api_poll_task_params()}
     ]
 
-    opts = [strategy: :one_for_one, name: ForzaChallenge.Supervisor]
+    opts = [strategy: :one_for_one, name: TestApp.Supervisor]
     Supervisor.start_link(children, opts)
   end
 
